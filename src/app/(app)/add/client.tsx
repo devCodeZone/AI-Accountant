@@ -6,6 +6,7 @@ import { DraftCard, EntryForm, SaveBar, blankDraft, type RefsLite } from "@/comp
 import type { DraftEntry } from "@/lib/types";
 import { compressImage, blobToBase64 } from "@/lib/image";
 import { enqueue, readQueue, removeQueued, type Queued } from "@/lib/offline";
+import { postJson, splitForAi, tailContext } from "@/lib/fetch-json";
 
 type Tab = "speak" | "type" | "photo" | "manual";
 const TABS: { k: Tab; label: string; icon: string }[] = [
@@ -36,9 +37,8 @@ export function AddClient({ refs, initialTab }: { refs: RefsLite; initialTab: Ta
   async function parse(body: object, keepText?: string) {
     setBusy(true); setMsg(null);
     try {
-      const res = await fetch("/api/ai/parse", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j.error);
+      const { ok, data: j } = await postJson("/api/ai/parse", body);
+      if (!ok) throw new Error(j.error || "Couldn't read that");
       if (j.transcript && keepText === undefined) setText(j.transcript);
       if (!j.drafts.length) setMsg({ tone: "err", text: "Couldn't find an amount. Try saying who, how much and for which site." });
       setDrafts((d) => [...d, ...j.drafts]);
@@ -52,7 +52,27 @@ export function AddClient({ refs, initialTab }: { refs: RefsLite; initialTab: Ta
   async function parseText(voice = false) {
     if (!text.trim()) return;
     if (!navigator.onLine) { enqueue("note", { text, voice }); setText(""); setMsg({ tone: "ok", text: "Saved on this phone. Process it when you're online." }); return; }
-    if (await parse({ text, voice }, text)) setText("");
+    const parts = splitForAi(text);
+    if (parts.length === 1) { if (await parse({ text, voice }, text)) setText(""); return; }
+    // Long text (e.g. a pasted WhatsApp chat): read it part by part so no single request times out.
+    if (parts.length > 15 && !confirm(`This is long — it will be read in ${parts.length} parts and may take a few minutes. Continue?`)) return;
+    setBusy(true); setMsg(null);
+    let found = 0;
+    const failed: number[] = [];
+    for (let i = 0; i < parts.length; i++) {
+      setMsg({ tone: "ok", text: `Reading part ${i + 1} of ${parts.length}… (${found} entries found so far)` });
+      const { ok, data: j } = await postJson("/api/ai/parse", { text: parts[i], voice, context: i > 0 ? tailContext(parts[i - 1]) : undefined });
+      if (ok && Array.isArray(j.drafts)) { found += j.drafts.length; setDrafts((d) => [...d, ...j.drafts]); }
+      else {
+        failed.push(i + 1);
+        if (String(j.error).includes("free-tier")) { await new Promise((r) => setTimeout(r, 20000)); i--; failed.pop(); continue; }
+      }
+    }
+    setBusy(false);
+    if (!failed.length) setText("");
+    setMsg(failed.length
+      ? { tone: "err", text: `Found ${found} entries. Parts ${failed.join(", ")} couldn't be read — they're still in the box; delete the parts that worked and try again.` }
+      : { tone: "ok", text: `Found ${found} entries in ${parts.length} parts. Check them below before saving.` });
   }
 
   async function save(list: DraftEntry[], status: "confirmed" | "needs_review") {
@@ -64,9 +84,8 @@ export function AddClient({ refs, initialTab }: { refs: RefsLite; initialTab: Ta
         setMsg({ tone: "ok", text: "Offline — saved on this phone, will sync automatically." });
         return true;
       }
-      const res = await fetch("/api/transactions", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ entries: list.map((d) => ({ ...d, status })) }) });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j.error);
+      const { ok, data: j } = await postJson("/api/transactions", { entries: list.map((d) => ({ ...d, status })) });
+      if (!ok) throw new Error(j.error);
       setMsg({ tone: "ok", text: `Saved ${j.saved} entr${j.saved === 1 ? "y" : "ies"}${status === "needs_review" ? " to Pending Review" : ""}.` });
       router.refresh();
       return true;

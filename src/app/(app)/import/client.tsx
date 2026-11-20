@@ -6,6 +6,7 @@ import type { RefsLite } from "@/components/entry-form";
 import type { DraftEntry } from "@/lib/types";
 import { bankLines, findHeaderRow, guessBankMap, guessLedgerMap, type BankMap, type LedgerMap } from "@/lib/import-utils";
 import { dmy, inr } from "@/lib/format";
+import { postJson } from "@/lib/fetch-json";
 
 type Mode = "bank" | "ledger";
 const BANK_FIELDS: [keyof BankMap, string][] = [["date", "Date *"], ["narration", "Narration *"], ["debit", "Withdrawal / Debit"], ["credit", "Deposit / Credit"], ["amount", "Amount (single column)"], ["type", "Dr/Cr column"], ["reference", "Ref / Cheque no."]];
@@ -61,9 +62,8 @@ export function ImportClient({ refs }: { refs: RefsLite }) {
 
   async function prepare(payload: object) {
     const url = mode === "bank" ? "/api/import/bank" : "/api/import/ledger";
-    const res = await fetch(url, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ account_id: account, ...payload }) });
-    const j = await res.json();
-    if (!res.ok) throw new Error(j.error);
+    const { ok, data: j } = await postJson(url, { account_id: account, ...payload });
+    if (!ok) throw new Error(j.error);
     setDrafts(j.drafts);
     setInclude(Object.fromEntries(j.drafts.map((d: DraftEntry) => [d.key, !d.duplicate_of])));
     setMsg(`${j.drafts.length} lines read${j.skipped?.length ? ` · ${j.skipped.length} rows skipped (no date/amount)` : ""}.${j.warning ? ` ${j.warning}` : ""}`);
@@ -91,9 +91,8 @@ export function ImportClient({ refs }: { refs: RefsLite }) {
     const create = chosen.filter((d) => !d.match_txn_id);
     setBusy("Saving…");
     try {
-      const res = await fetch("/api/import/commit", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ drafts: create, reconcile, status }) });
-      const j = await res.json();
-      if (!res.ok) throw new Error(j.error);
+      const { ok, data: j } = await postJson("/api/import/commit", { drafts: create, reconcile, status });
+      if (!ok) throw new Error(j.error);
       setMsg(`Saved ${j.saved} new entries${j.reconciled ? `, reconciled ${j.reconciled} existing` : ""}.`);
       setDrafts([]); setSheet(null); r.refresh();
     } catch (e: any) { setMsg(e.message); } finally { setBusy(""); }

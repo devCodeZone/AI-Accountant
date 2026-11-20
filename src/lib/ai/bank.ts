@@ -29,7 +29,10 @@ async function categorise(lines: BankLine[], refs: Refs, company: string): Promi
   const cats = refs.categories.filter((c) => !c.is_transfer).map((c) => c.name).join(" | ");
   const parties = refs.parties.slice(0, 300).map((p) => `${p.name} (${p.type})`).join("; ");
   const out: AiCat[] = [];
+  const deadline = Date.now() + 45_000; // leave the rest uncategorised rather than time out
   for (let start = 0; start < lines.length; start += 60) {
+    const left = deadline - Date.now();
+    if (left < 8000) break;
     const chunk = lines.slice(start, start + 60);
     const parts: Part[] = [{ text: chunk.map((l, j) => `${start + j}\t${l.date}\t${l.direction}\t${l.amount}\t${l.narration}`).join("\n") }];
     const r = await generateJSON<{ items: AiCat[] }>(
@@ -41,6 +44,7 @@ For each line (index, date, direction, amount, narration) pick: category (exactl
         party_type: { type: "STRING", enum: ["client", "vendor", "labour", "other"], nullable: true }, mode: { type: "STRING", enum: ["bank", "upi", "cheque", "card", "cash"], nullable: true },
         is_transfer: { type: "BOOLEAN" }, confidence: { type: "NUMBER" },
       }, required: ["i", "is_transfer", "confidence"] } } }, required: ["items"] },
+      0.1, left,
     );
     out.push(...(r.items ?? []));
   }

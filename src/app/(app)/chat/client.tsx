@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { Button, Card, Input } from "@/components/ui";
+import { postJson } from "@/lib/fetch-json";
 
 type Msg = { role: "user" | "assistant"; text: string; used?: { tool: string; args: object; result: unknown }[] };
 const SUGGEST = ["How much did we spend on plywood in October?", "Which project is least profitable?", "Who owes us money?", "Is mahine kitna profit hua?", "How much have we paid Ramesh this year?", "What's our cash and bank balance?"];
@@ -17,9 +18,8 @@ export function ChatClient() {
     const history = msgs.map(({ role, text }) => ({ role, text }));
     setMsgs((m) => [...m, { role: "user", text }]); setQ(""); setBusy(true);
     try {
-      const res = await fetch("/api/chat", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify({ question: text, history }) });
-      const j = await res.json();
-      setMsgs((m) => [...m, res.ok ? { role: "assistant", text: j.answer, used: j.used } : { role: "assistant", text: `⚠ ${j.error}` }]);
+      const { ok, data: j } = await postJson("/api/chat", { question: text, history });
+      setMsgs((m) => [...m, ok ? { role: "assistant", text: j.answer, used: j.used } : { role: "assistant", text: `⚠ ${j.error}` }]);
     } catch { setMsgs((m) => [...m, { role: "assistant", text: "⚠ Network error" }]); } finally { setBusy(false); }
   }
 

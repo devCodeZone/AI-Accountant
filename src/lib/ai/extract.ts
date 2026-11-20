@@ -74,6 +74,18 @@ Rules:
 - If an essential field (amount, or whether money came in or went out) is unclear, still return your best guess with low confidence and ONE short question.
 - Never invent amounts that are not present.
 
+WhatsApp group exports (lines like "[2/13/26, 11:06:31 AM] Name: message"):
+- Each message's bracket date is when it was sent: use it as txn_date, unless the message itself states the payment date (e.g. "( 07/04/26 )" or "21/02/2026" — dates written inside messages are day/month/year). Bracket dates follow the export's own order; work out month/day from values above 12.
+- The sender (e.g. Pavan, Kapil, Abhishek) is the person reporting, NOT the party. The party is the person named in the message (Mukesh carpenter, Bihari bhaiya, Jagdeesh, Arvind, Iqbal…).
+- "Total …", "total amount …", "Total - 1lac" are RUNNING TOTALS of everything paid to that person so far — never an entry by themselves. A message with an amount AND a total (e.g. "5000 govind carpenter Total 191000") is ONE payment of 5000.
+- A message with only an amount and a total and no name (e.g. "10000 cash Total 119500") belongs to the person whose running total it continues in the earlier messages; if you cannot tell, use your best guess with confidence ≤ 0.5 and a question.
+- "pending", "baki", "advance minal", "less", "nill" are notes about balances, not payments — skip them (do not create entries).
+- "case" means cash. "phpay", "phone pay", "phone pa", "phone pe", "PhonePe" mean UPI. "online"/"A/c" mean bank. "Credit card se" means card.
+- "received" (e.g. "60k received for railing") is money IN from a client; almost everything else in these chats is money OUT to workers/vendors.
+- "1 lac"/"1lakh" = 100000, "35k" = 35000.
+- Skip system lines, "<image omitted>", "This message was deleted", links, "Ok", "👍", and pure calculations you can't tie to one payment (e.g. "Total -175000-76300 98700").
+- Workers: carpenter/painter/electrician/plumber/POP etc. → party_type "labour" with party_trade and the matching Project labour category. Site/project names mentioned (Rajat Vihar, Atlantis, AIIMS, Dmart Rohit Nagar, Minal) → project_hint.
+
 Allowed categories:
 ${cats}
 

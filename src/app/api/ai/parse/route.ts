@@ -32,8 +32,11 @@ export const POST = handle(async (req: Request) => {
     parts.push({ text: "Transcribe this voice note (it may be Hindi, English or Hinglish), then extract the entries." });
     source = "voice";
   }
+  if (typeof body.context === "string" && body.context.trim()) {
+    parts.push({ text: `EARLIER MESSAGES — context only. They were already processed: do NOT create entries from them. Use them only to understand names, running totals and what a short message refers to:\n${body.context.slice(0, 2000)}\n\nNEW MESSAGES TO PROCESS:` });
+  }
   if (body.text?.trim()) {
-    parts.push({ text: String(body.text).slice(0, 4000) });
+    parts.push({ text: String(body.text).slice(0, 6000) });
     if (body.voice) source = "voice";
   }
   if (!parts.length) bad("Type, speak or upload something first");

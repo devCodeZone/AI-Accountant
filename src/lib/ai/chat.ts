@@ -101,8 +101,11 @@ Profit is cash basis (money actually received and paid). You cannot change any e
     { role: "user", parts: [{ text: question }] },
   ];
   const used: { tool: string; args: Args; result: unknown }[] = [];
+  const deadline = Date.now() + 52_000;
   for (let step = 0; step < 6; step++) {
-    const resp = await generate({ systemInstruction: { parts: [{ text: system }] }, contents, tools: [{ functionDeclarations: TOOLS }], generationConfig: { temperature: 0.1 } });
+    const left = deadline - Date.now();
+    if (left < 5000) break;
+    const resp = await generate({ systemInstruction: { parts: [{ text: system }] }, contents, tools: [{ functionDeclarations: TOOLS }], generationConfig: { temperature: 0.1 } }, left);
     const content = resp?.candidates?.[0]?.content;
     const calls = (content?.parts ?? []).filter((p: any) => p.functionCall);
     if (!calls.length) return { answer: textOf(resp) || "I couldn't work that out — try asking differently.", used };
