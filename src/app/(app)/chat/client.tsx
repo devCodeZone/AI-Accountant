@@ -37,7 +37,7 @@ export function ChatClient() {
         )}
         {msgs.map((m, i) => (
           <div key={i} className={m.role === "user" ? "flex justify-end" : ""}>
-            <Card className={m.role === "user" ? "max-w-[85%] bg-brand p-3 text-sm text-white" : "max-w-[95%] p-3 text-sm"}>
+            <Card className={m.role === "user" ? "max-w-[85%] !border-brand !bg-brand p-3 text-sm text-white" : "max-w-[95%] p-3 text-sm"}>
               <div className="whitespace-pre-wrap">{m.text}</div>
               {m.used && m.used.length > 0 && (
                 <details className="mt-2 text-xs text-muted">
