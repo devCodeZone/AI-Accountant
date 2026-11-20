@@ -5,6 +5,13 @@ import "server-only";
 const BASE = "https://generativelanguage.googleapis.com/v1beta/models";
 export const model = () => process.env.GEMINI_MODEL || "gemini-flash-latest";
 
+/** Tried in order when the main model is overloaded (503), rate-limited (429) or unavailable (404). */
+const models = () => {
+  const extra = (process.env.GEMINI_FALLBACK_MODELS || "gemini-flash-lite-latest,gemini-2.5-flash")
+    .split(",").map((m) => m.trim()).filter(Boolean);
+  return [...new Set([model(), ...extra])];
+};
+
 export type Part =
   | { text: string }
   | { inlineData: { mimeType: string; data: string } }
@@ -22,15 +29,18 @@ export async function generate(body: Record<string, unknown>, budgetMs = 50_000)
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new AiError("GEMINI_API_KEY is not set. Add it in Vercel → Settings → Environment Variables.");
   const deadline = Date.now() + budgetMs;
+  const list = models();
   let lastErr = "";
-  for (let attempt = 0; attempt < 3; attempt++) {
+  // Up to 2 rounds through the model list; a busy model hands over to the next one.
+  for (let attempt = 0; attempt < list.length * 2; attempt++) {
+    const m = list[attempt % list.length];
     const remaining = deadline - Date.now();
     if (remaining < 4000) break;
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), remaining);
     let res: Response;
     try {
-      res = await fetch(`${BASE}/${model()}:generateContent`, {
+      res = await fetch(`${BASE}/${m}:generateContent`, {
         method: "POST",
         headers: { "content-type": "application/json", "x-goog-api-key": key },
         body: JSON.stringify(body),
@@ -45,10 +55,19 @@ export async function generate(body: Record<string, unknown>, budgetMs = 50_000)
     }
     if (res.ok) return res.json();
     lastErr = await res.text();
-    if (res.status === 429 || res.status >= 500) { await new Promise((r) => setTimeout(r, 1200 * (attempt + 1))); continue; }
-    break;
+    const busy = res.status === 429 || res.status >= 500;
+    if (busy || res.status === 404) {
+      // after a full round of busy models, pause briefly before the second round
+      if (busy && (attempt + 1) % list.length === 0) await new Promise((r) => setTimeout(r, 2000));
+      continue;
+    }
+    break; // 400/401/403: a real problem (bad key, bad request) — no point retrying
   }
   if (lastErr.includes("RESOURCE_EXHAUSTED")) throw new AiError("AI is busy (free-tier limit reached). Try again in a minute.");
+  if (lastErr.includes("UNAVAILABLE") || lastErr.includes("high demand") || lastErr.includes("overloaded"))
+    throw new AiError("Google's AI is overloaded right now. Please try again in a few minutes.");
+  if (lastErr.includes("API_KEY_INVALID") || lastErr.includes("API key not valid"))
+    throw new AiError("The Gemini API key is not valid. Check GEMINI_API_KEY in Vercel.");
   if (!lastErr) throw new AiError("The AI took too long. Try a shorter message, or split it into smaller parts.");
   throw new AiError(`AI request failed: ${lastErr.slice(0, 300)}`);
 }

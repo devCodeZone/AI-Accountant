@@ -59,19 +59,28 @@ export function AddClient({ refs, initialTab }: { refs: RefsLite; initialTab: Ta
     setBusy(true); setMsg(null);
     let found = 0;
     const failed: number[] = [];
+    let firstError = "";
+    let retries = 0;
     for (let i = 0; i < parts.length; i++) {
       setMsg({ tone: "ok", text: `Reading part ${i + 1} of ${parts.length}… (${found} entries found so far)` });
       const { ok, data: j } = await postJson("/api/ai/parse", { text: parts[i], voice, context: i > 0 ? tailContext(parts[i - 1]) : undefined });
       if (ok && Array.isArray(j.drafts)) { found += j.drafts.length; setDrafts((d) => [...d, ...j.drafts]); }
       else {
         failed.push(i + 1);
-        if (String(j.error).includes("free-tier")) { await new Promise((r) => setTimeout(r, 20000)); i--; failed.pop(); continue; }
+        firstError ||= String(j.error ?? "Unknown error");
+        if (/free-tier|overloaded/.test(String(j.error)) && retries < 3) {
+          retries++;
+          setMsg({ tone: "ok", text: `Google's AI is busy — waiting 20 seconds, then retrying part ${i + 1}…` });
+          await new Promise((r) => setTimeout(r, 20000)); i--; failed.pop(); firstError = ""; continue;
+        }
+        // Same error on the first two parts (e.g. bad API key) → stop instead of repeating it 9 times.
+        if (i === 1 && failed.length === 2) { setBusy(false); setMsg({ tone: "err", text: `Couldn't read the text: ${firstError}` }); return; }
       }
     }
     setBusy(false);
     if (!failed.length) setText("");
     setMsg(failed.length
-      ? { tone: "err", text: `Found ${found} entries. Parts ${failed.join(", ")} couldn't be read — they're still in the box; delete the parts that worked and try again.` }
+      ? { tone: "err", text: `Found ${found} entries. Parts ${failed.join(", ")} of ${parts.length} couldn't be read (${firstError}). The full text is still in the box.` }
       : { tone: "ok", text: `Found ${found} entries in ${parts.length} parts. Check them below before saving.` });
   }
 
